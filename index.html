@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0f1730">
+  <meta name="description" content="Падаючі блоки на трьох: один рухає ліворуч, другий праворуч, третій повертає. Кожен грає зі свого телефона.">
+  <title>Блоки разом</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-bar">
+    <h1>Блоки разом</h1>
+    <span id="roomBadge" class="badge" hidden></span>
+    <button id="installBtn" class="install" hidden>Встановити</button>
+  </header>
+
+  <main>
+    <!-- Вхід у кімнату -->
+    <section id="joinScreen" class="screen">
+      <form id="joinForm" class="panel">
+        <p class="hint">Одна фігура на трьох: <b>один</b> рухає її ліворуч, <b>другий</b> праворуч, <b>третій</b> повертає. Падає вона сама. Усі вводять <b>однакову</b> назву кімнати і пароль.</p>
+        <label>Ваше імʼя
+          <input id="nameInput" type="text" required maxlength="20" autocomplete="nickname">
+        </label>
+        <label>Назва кімнати
+          <input id="roomInput" type="text" required maxlength="40" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="наприклад, група31">
+        </label>
+        <label>Пароль кімнати
+          <input id="passwordInput" type="password" required minlength="4" maxlength="64" autocomplete="off">
+        </label>
+        <button type="submit" id="joinBtn" class="big">Увійти в кімнату</button>
+        <p id="joinError" class="error" hidden></p>
+      </form>
+    </section>
+
+    <!-- Лобі -->
+    <section id="lobbyScreen" class="screen" hidden>
+      <div class="panel">
+        <h2>Ролі</h2>
+        <div id="roleCards" class="role-cards"></div>
+        <p class="hint">Торкніться ролі, щоб узяти її, ще раз — щоб віддати. Для тренування одна людина може взяти кілька ролей. Проєктор можна підключити як екран без ролі.</p>
+      </div>
+      <div class="panel">
+        <h2>У кімнаті</h2>
+        <ul id="playerList" class="players"></ul>
+      </div>
+      <div id="hostControls" class="panel" hidden>
+        <button id="startBtn" class="big">Почати гру</button>
+        <p id="startHint" class="hint center"></p>
+      </div>
+      <p id="lobbyWait" class="panel center hint" hidden>Чекаємо, поки ведучий почне гру…</p>
+    </section>
+
+    <!-- Гра -->
+    <section id="gameScreen" class="screen game" hidden>
+      <div class="stats">
+        <div><span class="label">Очки</span><b id="scoreView">0</b></div>
+        <div><span class="label">Лінії</span><b id="linesView">0</b></div>
+        <div><span class="label">Рекорд</span><b id="bestView">0</b></div>
+        <div><span class="label">Далі</span><canvas id="nextCanvas"></canvas></div>
+      </div>
+
+      <div class="board-wrap">
+        <canvas id="boardCanvas"></canvas>
+        <div id="overPanel" class="over" hidden>
+          <p class="eyebrow">Гру завершено</p>
+          <p id="overScore" class="big-text"></p>
+          <div id="overHost" class="stack">
+            <button id="againBtn" class="big">Ще раз</button>
+            <button id="lobbyBtn" class="secondary">До ролей</button>
+          </div>
+          <p id="overWait" class="hint">Нову гру почне ведучий.</p>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="ctrl-left" class="ctrl"><span class="icon">◀</span><span class="who"></span></button>
+        <button id="ctrl-rotate" class="ctrl"><span class="icon">⟳</span><span class="who"></span></button>
+        <button id="ctrl-right" class="ctrl"><span class="icon">▶</span><span class="who"></span></button>
+      </div>
+      <p id="netInfo" class="hint center"></p>
+    </section>
+  </main>
+
+  <script src="net.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+:root {
+  --bg: #0f1730;
+  --panel: #1b2547;
+  --text: #eef2ff;
+  --muted: #a9b4d6;
+  --accent: #ffd23f;
+  --bad: #ff5a5f;
+  --mine: #46d17a;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding-bottom: env(safe-area-inset-bottom);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+  background: #0a1024;
+}
+.app-bar h1 { margin: 0; font-size: 1.2rem; }
+
+main { max-width: 560px; margin: 0 auto; padding: 12px 16px; }
+.screen { display: grid; gap: 14px; }
+
+.panel { background: var(--panel); border-radius: 16px; padding: 18px; display: grid; gap: 12px; }
+.panel h2 { margin: 0; font-size: 1rem; color: var(--muted); }
+.center { text-align: center; }
+
+.hint { margin: 0; color: var(--muted); line-height: 1.45; }
+.error { margin: 0; color: var(--bad); font-weight: 600; }
+.eyebrow { margin: 0; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-size: 0.85rem; }
+.big-text { margin: 0; font-size: 1.6rem; font-weight: 800; }
+.badge { font-family: ui-monospace, Consolas, monospace; letter-spacing: 2px; color: var(--muted); }
+
+button {
+  font: inherit;
+  font-weight: 700;
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 16px;
+  background: var(--accent);
+  color: #0f1730;
+  cursor: pointer;
+}
+button.big { padding: 16px; font-size: 1.1rem; }
+button.secondary { background: transparent; color: var(--text); border: 2px solid var(--muted); }
+button.install { background: var(--text); color: var(--bg); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+label { display: grid; gap: 6px; font-weight: 600; }
+input[type="text"], input[type="password"] {
+  font: inherit;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--muted);
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Лобі */
+.role-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.role-card {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 14px 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 2px solid transparent;
+}
+.role-card .icon { font-size: 2rem; line-height: 1; }
+.role-card .who { font-weight: 400; color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }
+.role-card.taken .who { color: var(--text); font-weight: 700; }
+.role-card.mine { border-color: var(--mine); }
+.role-card.mine .who { color: var(--mine); }
+
+.players { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.players .offline { opacity: 0.5; }
+
+/* Гра */
+.game { gap: 10px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
+.stats > div { background: var(--panel); border-radius: 12px; padding: 6px 4px; display: grid; justify-items: center; gap: 2px; }
+.stats .label { font-size: 0.75rem; color: var(--muted); }
+.stats b { font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+
+.board-wrap { position: relative; justify-self: center; }
+#boardCanvas { display: block; border-radius: 8px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45); }
+
+.over {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(10, 16, 36, 0.86);
+  border-radius: 8px;
+}
+.stack { display: grid; gap: 8px; width: 100%; max-width: 220px; }
+
+.controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.ctrl {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 14px 4px;
+  min-height: 84px;
+  background: var(--panel);
+  color: var(--muted);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 80ms;
+}
+.ctrl .icon { font-size: 2rem; line-height: 1; }
+.ctrl .who { font-size: 0.8rem; font-weight: 400; overflow-wrap: anywhere; }
+.ctrl.mine { background: var(--mine); color: #0f1730; }
+.ctrl.mine .who { font-weight: 700; }
+.ctrl.free { border: 2px dashed var(--accent); color: var(--accent); }
+.ctrl:active.mine { transform: scale(0.95); }
+@keyframes pulse { from { box-shadow: 0 0 0 0 rgba(255, 210, 63, 0.9); } to { box-shadow: 0 0 0 10px rgba(255, 210, 63, 0); } }
+.ctrl.pulse { animation: pulse 250ms ease-out; }

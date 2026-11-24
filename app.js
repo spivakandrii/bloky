@@ -1,0 +1,785 @@
+'use strict';
+
+// =====================================================================
+//  Хто я. Окремий id для кожної вкладки, щоб після перезавантаження
+//  повернутися в гру тим самим гравцем.
+// =====================================================================
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function myId() {
+  let id = sessionStorage.getItem('bloky-id');
+  if (!id) {
+    id = randomId();
+    sessionStorage.setItem('bloky-id', id);
+  }
+  return id;
+}
+
+const me = { id: myId(), name: '' };
+
+const ROLES = [
+  { key: 'left', icon: '◀', label: 'Ліворуч' },
+  { key: 'rotate', icon: '⟳', label: 'Поворот' },
+  { key: 'right', icon: '▶', label: 'Праворуч' }
+];
+const COLS = 10;
+const ROWS = 20;
+const FALL_MS = 700;            // фігура падає з однаковою швидкістю всю гру
+const REPEAT_DELAY_MS = 220;    // затиснута кнопка: перший повтор
+const REPEAT_EVERY_MS = 110;    // і далі кожні
+const LINE_POINTS = [0, 100, 300, 500, 800];
+
+const HELLO_EVERY_MS = 3000;
+const HOST_BEAT_MS = 2000;
+const OFFLINE_AFTER_MS = 9000;
+const HOST_LOST_AFTER_MS = 10000;
+const ELECTION_WAIT_MS = 4500;
+
+const SHAPES = {
+  I: [[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]],
+  O: [[1, 1], [1, 1]],
+  T: [[0, 1, 0], [1, 1, 1], [0, 0, 0]],
+  S: [[0, 1, 1], [1, 1, 0], [0, 0, 0]],
+  Z: [[1, 1, 0], [0, 1, 1], [0, 0, 0]],
+  J: [[1, 0, 0], [1, 1, 1], [0, 0, 0]],
+  L: [[0, 0, 1], [1, 1, 1], [0, 0, 0]]
+};
+const PIECE_TYPES = Object.keys(SHAPES);
+const COLORS = { I: '#3fd0e0', O: '#ffd23f', T: '#b06cff', S: '#46d17a', Z: '#ff5a5f', J: '#4a7dff', L: '#ff9f43' };
+const EMPTY = '.';
+
+let room = null;
+let isHost = false;
+let state = null;
+let lastSeq = {};
+let liveHostSeenAt = 0;
+let bag = [];              // лише в ведучого
+let nextFallAt = 0;        // лише в ведучого
+const lastSeen = {};       // лише в ведучого
+
+// =====================================================================
+//  Фігури і поле. Поле — рядок COLS×ROWS: '.' порожньо, літера — колір фігури.
+// =====================================================================
+function rotated(matrix) {
+  const n = matrix.length;
+  return matrix.map((row, y) => row.map((_, x) => matrix[n - 1 - x][y]));
+}
+
+function pieceCells(piece) {
+  let matrix = SHAPES[piece.t];
+  for (let i = 0; i < piece.r; i++) {
+    matrix = rotated(matrix);
+  }
+  const cells = [];
+  matrix.forEach((row, dy) => row.forEach((filled, dx) => {
+    if (filled) {
+      cells.push([piece.x + dx, piece.y + dy]);
+    }
+  }));
+  return cells;
+}
+
+function fits(board, piece) {
+  return pieceCells(piece).every(([x, y]) =>
+    x >= 0 && x < COLS && y < ROWS && (y < 0 || board[y * COLS + x] === EMPTY));
+}
+
+function landingY(board, piece) {
+  const ghost = Object.assign({}, piece);
+  while (fits(board, Object.assign({}, ghost, { y: ghost.y + 1 }))) {
+    ghost.y++;
+  }
+  return ghost.y;
+}
+
+// =====================================================================
+//  Ведучий: рахує гру і розсилає стан усім
+// =====================================================================
+function shuffled(list) {
+  const copy = list.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function newGame() {
+  return {
+    hostId: me.id,
+    seq: 0,
+    phase: 'lobby',
+    players: [],
+    roles: { left: null, rotate: null, right: null },
+    board: EMPTY.repeat(COLS * ROWS),
+    piece: null,
+    next: null,
+    score: 0,
+    lines: 0,
+    best: 0,
+    lastMove: null
+  };
+}
+
+// «Мішок» із семи фігур: кожна випадає раз на сім, без довгих серій однакових
+function takeFromBag() {
+  if (bag.length === 0) {
+    bag = shuffled(PIECE_TYPES);
+  }
+  return bag.pop();
+}
+
+function endGame() {
+  state.phase = 'over';
+  state.best = Math.max(state.best, state.score);
+}
+
+function spawnPiece() {
+  const type = state.next || takeFromBag();
+  state.next = takeFromBag();
+  const size = SHAPES[type].length;
+  state.piece = { t: type, r: 0, x: Math.floor((COLS - size) / 2), y: 0 };
+  if (!fits(state.board, state.piece)) {
+    endGame();
+  }
+}
+
+function startGame() {
+  state.board = EMPTY.repeat(COLS * ROWS);
+  state.score = 0;
+  state.lines = 0;
+  state.next = null;
+  state.lastMove = null;
+  bag = [];
+  state.phase = 'play';
+  spawnPiece();
+  nextFallAt = Date.now() + FALL_MS;
+}
+
+function lockPiece() {
+  const board = state.board.split('');
+  for (const [x, y] of pieceCells(state.piece)) {
+    board[y * COLS + x] = state.piece.t;
+  }
+  const rows = [];
+  for (let y = 0; y < ROWS; y++) {
+    rows.push(board.slice(y * COLS, (y + 1) * COLS).join(''));
+  }
+  const kept = rows.filter(row => row.includes(EMPTY));
+  const cleared = ROWS - kept.length;
+  state.board = Array(cleared).fill(EMPTY.repeat(COLS)).concat(kept).join('');
+  state.lines += cleared;
+  state.score += LINE_POINTS[cleared];
+  spawnPiece();
+}
+
+function fallStep() {
+  const lower = Object.assign({}, state.piece, { y: state.piece.y + 1 });
+  if (fits(state.board, lower)) {
+    state.piece = lower;
+  } else {
+    lockPiece();
+  }
+}
+
+function tryMove(dir) {
+  const piece = state.piece;
+  if (dir === 'left' || dir === 'right') {
+    const moved = Object.assign({}, piece, { x: piece.x + (dir === 'left' ? -1 : 1) });
+    if (!fits(state.board, moved)) {
+      return false;
+    }
+    state.piece = moved;
+    return true;
+  }
+  // Поворот біля стіни: пробуємо трохи зсунути фігуру
+  const turned = Object.assign({}, piece, { r: (piece.r + 1) % 4 });
+  for (const kick of [0, -1, 1, -2, 2]) {
+    const candidate = Object.assign({}, turned, { x: turned.x + kick });
+    if (fits(state.board, candidate)) {
+      state.piece = candidate;
+      return true;
+    }
+  }
+  return false;
+}
+
+function isOnline(id) {
+  const player = state.players.find(p => p.id === id);
+  return Boolean(player && player.online);
+}
+
+function startProblem() {
+  const free = ROLES.filter(role => !state.roles[role.key]);
+  if (free.length > 0) {
+    return 'Вільні ролі: ' + free.map(role => role.label.toLowerCase()).join(', ') + '.';
+  }
+  if (ROLES.some(role => !isOnline(state.roles[role.key]))) {
+    return 'Хтось із гравців не в мережі.';
+  }
+  return null;
+}
+
+function upsertPlayer(id, name) {
+  lastSeen[id] = Date.now();
+  const player = state.players.find(p => p.id === id);
+  if (player) {
+    player.name = name;
+    player.online = true;
+    return;
+  }
+  state.players.push({ id, name, online: true });
+}
+
+function handleAction(a) {
+  if (!state) {
+    return;
+  }
+  const player = state.players.find(p => p.id === a.from);
+  if (!player) {
+    return;
+  }
+  const fromHost = a.from === state.hostId;
+  const isRole = ROLES.some(role => role.key === a.role);
+  const isDir = ROLES.some(role => role.key === a.dir);
+
+  if (a.type === 'role' && isRole) {
+    const holder = state.roles[a.role];
+    if (holder === a.from && state.phase !== 'play') {
+      state.roles[a.role] = null;
+    } else if (!holder || !isOnline(holder)) {
+      state.roles[a.role] = a.from;
+    } else {
+      return;
+    }
+  } else if (a.type === 'start' && fromHost && state.phase !== 'play' && !startProblem()) {
+    startGame();
+  } else if (a.type === 'lobby' && fromHost && state.phase === 'over') {
+    state.phase = 'lobby';
+  } else if (a.type === 'move' && isDir && state.phase === 'play' && state.roles[a.dir] === a.from) {
+    if (!tryMove(a.dir)) {
+      return;
+    }
+    state.lastMove = { dir: a.dir, n: (state.lastMove ? state.lastMove.n : 0) + 1 };
+  } else {
+    return;
+  }
+  publishState();
+}
+
+function hostTick() {
+  if (!isHost || !state) {
+    return;
+  }
+  lastSeen[me.id] = Date.now();
+  const now = Date.now();
+  for (const p of state.players) {
+    p.online = now - (lastSeen[p.id] || 0) < OFFLINE_AFTER_MS;
+  }
+  if (state.phase === 'lobby') {
+    state.players = state.players.filter(p => p.online || now - (lastSeen[p.id] || 0) < 3 * OFFLINE_AFTER_MS);
+    for (const role of ROLES) {
+      if (!state.players.some(p => p.id === state.roles[role.key])) {
+        state.roles[role.key] = null;
+      }
+    }
+  }
+  publishState();
+}
+
+function hostGameTick() {
+  if (!isHost || !state || state.phase !== 'play' || Date.now() < nextFallAt) {
+    return;
+  }
+  fallStep();
+  nextFallAt = Date.now() + FALL_MS;
+  publishState();
+}
+
+function publishState() {
+  state.seq++;
+  room.send('state', { state }, true);
+  render();
+}
+
+function becomeHost(fromState) {
+  isHost = true;
+  bag = [];
+  if (fromState) {
+    state = Object.assign({}, fromState, { hostId: me.id });
+    for (const p of state.players) {
+      lastSeen[p.id] = p.online && p.id !== fromState.hostId ? Date.now() : 0;
+    }
+  } else {
+    state = newGame();
+  }
+  nextFallAt = Date.now() + FALL_MS;
+  lastSeq = {};
+  upsertPlayer(me.id, me.name);
+  publishState();
+}
+
+// =====================================================================
+//  Повідомлення з кімнати
+// =====================================================================
+let electionDone = false;
+
+function onNetMessage(channel, message, retained) {
+  if (channel === 'state' && message.state) {
+    const incoming = message.state;
+    if (isHost) {
+      // Два ведучих одночасно: лишається той, у кого менший id
+      if (incoming.hostId !== me.id && !retained && incoming.hostId < me.id) {
+        isHost = false;
+      } else {
+        return;
+      }
+    }
+    if ((lastSeq[incoming.hostId] || -1) >= incoming.seq) {
+      return;
+    }
+    lastSeq[incoming.hostId] = incoming.seq;
+    if (retained) {
+      return;
+    }
+    liveHostSeenAt = Date.now();
+    state = incoming;
+    if (electionDone) {
+      render();
+    }
+  } else if (channel === 'hello' && isHost && message.from && message.name) {
+    const known = state.players.some(p => p.id === message.from);
+    upsertPlayer(message.from, String(message.name).slice(0, 20));
+    if (!known) {
+      publishState();
+    }
+  } else if (channel === 'action' && isHost && message.a) {
+    handleAction(message.a);
+  }
+}
+
+function act(type, extra) {
+  const a = Object.assign({ type, from: me.id }, extra);
+  if (isHost) {
+    handleAction(a);
+  } else {
+    room.send('action', { a });
+  }
+}
+
+function watchHost() {
+  if (isHost || !state || !electionDone) {
+    return;
+  }
+  if (Date.now() - liveHostSeenAt < HOST_LOST_AFTER_MS) {
+    $('netInfo').textContent = '';
+    return;
+  }
+  // Ведучий зник: його місце займає гравець з найменшим id
+  const candidates = state.players.filter(p => p.online && p.id !== state.hostId).map(p => p.id).sort();
+  if (candidates[0] === me.id) {
+    becomeHost(state);
+  } else {
+    $('netInfo').textContent = 'Звʼязок з ведучим втрачено, чекаємо…';
+  }
+}
+
+async function joinRoom(name, roomName, password) {
+  me.name = name;
+  room = new Room(onNetMessage);
+  await room.join(roomName, password);
+  $('roomBadge').textContent = 'кімната ' + room.code;
+  $('roomBadge').hidden = false;
+
+  const hello = () => room.send('hello', { from: me.id, name: me.name });
+  hello();
+  setInterval(hello, HELLO_EVERY_MS);
+
+  // Чекаємо живого ведучого; нема — стаємо ним самі
+  await sleep(ELECTION_WAIT_MS);
+  electionDone = true;
+  if (!isHost && Date.now() - liveHostSeenAt > ELECTION_WAIT_MS) {
+    becomeHost(null);
+  }
+  render();
+
+  setInterval(hostTick, HOST_BEAT_MS);
+  setInterval(watchHost, HOST_BEAT_MS);
+  setInterval(hostGameTick, 50);
+}
+
+// =====================================================================
+//  Екран
+// =====================================================================
+function showScreen(id) {
+  for (const s of ['joinScreen', 'lobbyScreen', 'gameScreen']) {
+    $(s).hidden = s !== id;
+  }
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) {
+    node.className = className;
+  }
+  if (text !== undefined) {
+    node.textContent = text;
+  }
+  return node;
+}
+
+function playerName(id) {
+  const p = state.players.find(x => x.id === id);
+  return p ? p.name : '';
+}
+
+function render() {
+  if (!state) {
+    return;
+  }
+  if (state.phase === 'lobby') {
+    showScreen('lobbyScreen');
+    renderLobby();
+  } else {
+    showScreen('gameScreen');
+    renderGame();
+  }
+  updateWakeLock();
+  signals();
+}
+
+function renderLobby() {
+  const cards = $('roleCards');
+  cards.innerHTML = '';
+  for (const role of ROLES) {
+    const holder = state.roles[role.key];
+    const card = el('button', 'role-card' + (holder ? ' taken' : '') + (holder === me.id ? ' mine' : ''));
+    card.append(el('span', 'icon', role.icon), el('span', null, role.label));
+    card.append(el('span', 'who', holder ? playerName(holder) + (holder === me.id ? ' (ви)' : '') : 'вільно'));
+    card.addEventListener('click', () => act('role', { role: role.key }));
+    cards.append(card);
+  }
+
+  const list = $('playerList');
+  list.innerHTML = '';
+  for (const p of state.players) {
+    const roles = ROLES.filter(role => state.roles[role.key] === p.id).map(role => role.icon).join(' ');
+    const line = (p.id === state.hostId ? '★ ' : '') + p.name + (p.id === me.id ? ' (ви)' : '') + (roles ? '  ' + roles : '');
+    list.append(el('li', p.online ? '' : 'offline', line));
+  }
+
+  $('hostControls').hidden = !isHost;
+  $('lobbyWait').hidden = isHost;
+  if (isHost) {
+    const problem = startProblem();
+    $('startBtn').disabled = Boolean(problem);
+    $('startHint').textContent = problem || 'Усе готово!';
+  }
+}
+
+// ---------- Поле ----------
+let cell = 24;
+
+function layoutBoard() {
+  const width = Math.min(window.innerWidth, 560) - 32;
+  const height = window.innerHeight - 300;
+  cell = Math.max(14, Math.floor(Math.min(width / COLS, height / ROWS)));
+  setupCanvas($('boardCanvas'), cell * COLS, cell * ROWS);
+  setupCanvas($('nextCanvas'), 48, 28);
+}
+
+function setupCanvas(canvas, width, height) {
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  canvas.style.width = width + 'px';
+  canvas.style.height = height + 'px';
+  canvas.getContext('2d').setTransform(ratio, 0, 0, ratio, 0, 0);
+}
+
+function drawBlock(ctx, x, y, size, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+  ctx.fillRect(x * size + 1, y * size + 1, size - 2, Math.max(2, size * 0.18));
+}
+
+function drawBoard() {
+  const ctx = $('boardCanvas').getContext('2d');
+  ctx.fillStyle = '#0a1024';
+  ctx.fillRect(0, 0, cell * COLS, cell * ROWS);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+  ctx.lineWidth = 1;
+  for (let x = 1; x < COLS; x++) {
+    ctx.beginPath();
+    ctx.moveTo(x * cell + 0.5, 0);
+    ctx.lineTo(x * cell + 0.5, cell * ROWS);
+    ctx.stroke();
+  }
+  for (let y = 1; y < ROWS; y++) {
+    ctx.beginPath();
+    ctx.moveTo(0, y * cell + 0.5);
+    ctx.lineTo(cell * COLS, y * cell + 0.5);
+    ctx.stroke();
+  }
+
+  for (let i = 0; i < state.board.length; i++) {
+    const type = state.board[i];
+    if (type !== EMPTY) {
+      drawBlock(ctx, i % COLS, Math.floor(i / COLS), cell, COLORS[type]);
+    }
+  }
+
+  if (!state.piece) {
+    return;
+  }
+  if (state.phase === 'play') {
+    // Тінь: куди фігура впаде
+    const ghost = Object.assign({}, state.piece, { y: landingY(state.board, state.piece) });
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 2;
+    for (const [x, y] of pieceCells(ghost)) {
+      ctx.strokeRect(x * cell + 2, y * cell + 2, cell - 4, cell - 4);
+    }
+  }
+  for (const [x, y] of pieceCells(state.piece)) {
+    drawBlock(ctx, x, y, cell, COLORS[state.piece.t]);
+  }
+}
+
+function drawNext() {
+  const ctx = $('nextCanvas').getContext('2d');
+  ctx.clearRect(0, 0, 48, 28);
+  if (!state.next) {
+    return;
+  }
+  const size = 11;
+  const cells = pieceCells({ t: state.next, r: 0, x: 0, y: 0 });
+  const minX = Math.min(...cells.map(c => c[0]));
+  const maxX = Math.max(...cells.map(c => c[0]));
+  const minY = Math.min(...cells.map(c => c[1]));
+  const maxY = Math.max(...cells.map(c => c[1]));
+  const offsetX = (48 - (maxX - minX + 1) * size) / 2;
+  const offsetY = (28 - (maxY - minY + 1) * size) / 2;
+  ctx.save();
+  ctx.translate(offsetX - minX * size, offsetY - minY * size);
+  for (const [x, y] of cells) {
+    drawBlock(ctx, x, y, size, COLORS[state.next]);
+  }
+  ctx.restore();
+}
+
+function renderControls() {
+  for (const role of ROLES) {
+    const button = $('ctrl-' + role.key);
+    const holder = state.roles[role.key];
+    const mine = holder === me.id;
+    const free = !holder || !isOnline(holder);
+    button.classList.toggle('mine', mine);
+    button.classList.toggle('free', !mine && free && state.phase === 'play');
+    let who = holder ? playerName(holder) : '';
+    if (mine) {
+      who = 'ви';
+    } else if (free && state.phase === 'play') {
+      who = 'зайняти';
+    }
+    button.querySelector('.who').textContent = who;
+  }
+}
+
+function plural(n, one, few, many) {
+  const last = n % 10;
+  const lastTwo = n % 100;
+  if (last === 1 && lastTwo !== 11) {
+    return n + ' ' + one;
+  }
+  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) {
+    return n + ' ' + few;
+  }
+  return n + ' ' + many;
+}
+
+function renderGame() {
+  $('scoreView').textContent = state.score;
+  $('linesView').textContent = state.lines;
+  $('bestView').textContent = Math.max(state.best, state.score);
+  drawBoard();
+  drawNext();
+  renderControls();
+
+  const over = state.phase === 'over';
+  $('overPanel').hidden = !over;
+  if (over) {
+    $('overScore').textContent = plural(state.score, 'очко', 'очки', 'очок') + ' · ' + plural(state.lines, 'лінія', 'лінії', 'ліній');
+    $('overHost').hidden = !isHost;
+    $('overWait').hidden = isHost;
+  }
+}
+
+// ---------- Підсвітка ходів, вібрація, екран не гасне ----------
+let seenMove = 0;
+let seenLines = 0;
+let seenPhase = null;
+
+function signals() {
+  const move = state.lastMove;
+  if (move && move.n !== seenMove) {
+    seenMove = move.n;
+    const button = $('ctrl-' + move.dir);
+    button.classList.remove('pulse');
+    void button.offsetWidth;
+    button.classList.add('pulse');
+  }
+  if (state.lines > seenLines) {
+    vibrate(80);
+  }
+  seenLines = state.lines;
+  if (state.phase === 'over' && seenPhase === 'play') {
+    vibrate([300, 100, 300]);
+  }
+  seenPhase = state.phase;
+}
+
+// iPhone вібрацію з браузера не підтримує — там просто нічого не станеться
+function vibrate(pattern) {
+  if (navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive) {
+    navigator.vibrate(pattern);
+  }
+}
+
+let wakeLock = null;
+
+async function updateWakeLock() {
+  const want = state && state.phase === 'play';
+  try {
+    if (want && !wakeLock && 'wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } else if (!want && wakeLock) {
+      await wakeLock.release();
+    }
+  } catch {
+    wakeLock = null;
+  }
+}
+
+// =====================================================================
+//  Керування
+// =====================================================================
+function pressRole(key) {
+  if (state && state.phase === 'play' && state.roles[key] === me.id) {
+    vibrate(15);
+    act('move', { dir: key });
+    return true;
+  }
+  return false;
+}
+
+for (const role of ROLES) {
+  const button = $('ctrl-' + role.key);
+  let delay = null;
+  let repeat = null;
+  const stop = () => {
+    clearTimeout(delay);
+    clearInterval(repeat);
+  };
+  button.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (!state) {
+      return;
+    }
+    const holder = state.roles[role.key];
+    if (holder !== me.id) {
+      if (state.phase === 'play' && (!holder || !isOnline(holder))) {
+        act('role', { role: role.key });
+      }
+      return;
+    }
+    if (!pressRole(role.key) || role.key === 'rotate') {
+      return;
+    }
+    stop();
+    delay = setTimeout(() => {
+      repeat = setInterval(() => pressRole(role.key), REPEAT_EVERY_MS);
+    }, REPEAT_DELAY_MS);
+  });
+  for (const type of ['pointerup', 'pointerleave', 'pointercancel']) {
+    button.addEventListener(type, stop);
+  }
+  button.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'rotate', Space: 'rotate', KeyX: 'rotate' };
+
+document.addEventListener('keydown', e => {
+  const key = KEYS[e.code];
+  if (!key || (key === 'rotate' && e.repeat)) {
+    return;
+  }
+  if (pressRole(key)) {
+    e.preventDefault();
+  }
+});
+
+$('startBtn').addEventListener('click', () => act('start'));
+$('againBtn').addEventListener('click', () => act('start'));
+$('lobbyBtn').addEventListener('click', () => act('lobby'));
+
+window.addEventListener('resize', () => {
+  layoutBoard();
+  if (state && state.phase !== 'lobby') {
+    renderGame();
+  }
+});
+layoutBoard();
+
+try {
+  $('nameInput').value = localStorage.getItem('bloky-name') || '';
+  $('roomInput').value = localStorage.getItem('bloky-room') || '';
+} catch {
+  // сховище недоступне — поля просто порожні
+}
+
+$('joinForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const name = $('nameInput').value.trim();
+  const roomName = $('roomInput').value;
+  try {
+    localStorage.setItem('bloky-name', name);
+    localStorage.setItem('bloky-room', roomName.trim());
+  } catch {
+    // не зберегли — не страшно
+  }
+  $('joinBtn').disabled = true;
+  $('joinBtn').textContent = 'Підключення…';
+  $('joinError').hidden = true;
+  try {
+    await joinRoom(name, roomName, $('passwordInput').value);
+  } catch (err) {
+    $('joinError').textContent = err.message;
+    $('joinError').hidden = false;
+    $('joinBtn').disabled = false;
+    $('joinBtn').textContent = 'Увійти в кімнату';
+  }
+});
+
+// ---------- PWA ----------
+let installPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installPrompt = e;
+  $('installBtn').hidden = false;
+});
+
+$('installBtn').addEventListener('click', async () => {
+  $('installBtn').hidden = true;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+});
+
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js');
+}
