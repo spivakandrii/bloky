@@ -1,6 +1,6 @@
 // Спершу мережа, потім кеш: встановлений застосунок завжди отримує свіжу версію,
 // а без інтернету відкривається з кешу (грати онлайн без мережі однаково не вийде).
-const CACHE = 'bloky-v2';
+const CACHE = 'bloky-v3';
 
 const FILES = [
   './',
@@ -31,8 +31,9 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || url.origin !== location.origin) {
     return;
   }
+  // no-cache: GitHub Pages дозволяє браузеру 10 хвилин тримати старі файли — перепитуємо сервер щоразу
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-cache' })
       .then(response => {
         const copy = response.clone();
         caches.open(CACHE).then(cache => cache.put(event.request, copy));
