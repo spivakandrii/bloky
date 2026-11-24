@@ -1,13 +1,13 @@
 // Спершу мережа, потім кеш: встановлений застосунок завжди отримує свіжу версію,
 // а без інтернету відкривається з кешу (грати онлайн без мережі однаково не вийде).
-const CACHE = 'bloky-v5';
+const CACHE = 'bloky-v6';
 
 const FILES = [
   './',
   './index.html',
-  './style.css?v=4',
-  './net.js?v=4',
-  './app.js?v=4',
+  './style.css?v=5',
+  './net.js?v=5',
+  './app.js?v=5',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'

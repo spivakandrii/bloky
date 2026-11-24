@@ -454,7 +454,7 @@ async function joinRoom(name, roomName, password) {
 //  Екран
 // =====================================================================
 function showScreen(id) {
-  for (const s of ['joinScreen', 'lobbyScreen', 'gameScreen']) {
+  for (const s of ['joinScreen', 'lobbyScreen', 'gameScreen', 'settingsScreen']) {
     $(s).hidden = s !== id;
   }
 }
@@ -476,7 +476,7 @@ function playerName(id) {
 }
 
 function render() {
-  if (!state) {
+  if (!state || settingsOpen) {
     return;
   }
   if (state.phase === 'lobby') {
@@ -760,15 +760,252 @@ for (const role of ROLES) {
   button.addEventListener('contextmenu', e => e.preventDefault());
 }
 
-const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'rotate', Space: 'rotate', KeyX: 'rotate', ArrowDown: 'down' };
+// =====================================================================
+//  Налаштування керування: клавіша і кнопка геймпада для кожної дії.
+//  Зберігаються лише в цьому браузері — у кожного гравця свої.
+// =====================================================================
+const BINDINGS_KEY = 'bloky-bindings';
+const DEFAULT_BINDINGS = {
+  left: { key: 'ArrowLeft', pad: 'b14' },
+  rotate: { key: 'ArrowUp', pad: 'b0' },
+  right: { key: 'ArrowRight', pad: 'b15' },
+  down: { key: 'ArrowDown', pad: 'b13' }
+};
+// Назви кнопок стандартного геймпада (Xbox-розкладка; на PlayStation A = ✕, B = ○, X = □, Y = △)
+const PAD_BUTTONS = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Back', 'Start', 'L-стік', 'R-стік', 'Хрест ↑', 'Хрест ↓', 'Хрест ←', 'Хрест →'];
+const KEY_NAMES = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Space: 'Пробіл', Enter: 'Enter', ShiftLeft: 'Shift', ShiftRight: 'Shift (правий)', ControlLeft: 'Ctrl', ControlRight: 'Ctrl (правий)' };
+const AXIS_THRESHOLD = 0.6;
 
+let settingsOpen = false;
+let capturing = null;        // { role, kind: 'key' | 'pad' } — чекаємо нову клавішу чи кнопку
+let bindings = loadBindings();
+
+function loadBindings() {
+  const result = JSON.parse(JSON.stringify(DEFAULT_BINDINGS));
+  try {
+    const saved = JSON.parse(localStorage.getItem(BINDINGS_KEY));
+    for (const role of ROLES) {
+      if (saved && saved[role.key]) {
+        Object.assign(result[role.key], saved[role.key]);
+      }
+    }
+  } catch {
+    // нема збережених — лишаються стандартні
+  }
+  return result;
+}
+
+function saveBindings() {
+  try {
+    localStorage.setItem(BINDINGS_KEY, JSON.stringify(bindings));
+  } catch {
+    // не збереглося — діятиме до перезавантаження
+  }
+}
+
+function keyName(code) {
+  if (!code) {
+    return '—';
+  }
+  if (KEY_NAMES[code]) {
+    return KEY_NAMES[code];
+  }
+  return code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'Num ');
+}
+
+function padName(input) {
+  if (!input) {
+    return '—';
+  }
+  if (input[0] === 'b') {
+    return PAD_BUTTONS[Number(input.slice(1))] || 'Кнопка ' + input.slice(1);
+  }
+  // Стік: a0 — горизонталь, a1 — вертикаль лівого стіка
+  const axis = Number(input.slice(1, -1));
+  const sign = input.slice(-1);
+  const arrows = axis % 2 === 0 ? { '-': '←', '+': '→' } : { '-': '↑', '+': '↓' };
+  return (axis < 2 ? 'Лівий' : 'Правий') + ' стік ' + arrows[sign];
+}
+
+function roleFor(kind, value) {
+  const role = ROLES.find(r => bindings[r.key][kind] === value);
+  return role ? role.key : null;
+}
+
+function startCapture(role, kind) {
+  const same = capturing && capturing.role === role && capturing.kind === kind;
+  capturing = same ? null : { role, kind };
+  renderSettings();
+}
+
+function finishCapture(value) {
+  const { role, kind } = capturing;
+  // Та сама клавіша не може керувати двома діями
+  for (const r of ROLES) {
+    if (bindings[r.key][kind] === value) {
+      bindings[r.key][kind] = null;
+    }
+  }
+  bindings[role][kind] = value;
+  capturing = null;
+  saveBindings();
+  renderSettings();
+}
+
+function renderSettings() {
+  const rows = $('bindingRows');
+  rows.innerHTML = '';
+  for (const role of ROLES) {
+    rows.append(el('span', 'binding-label', role.icon + ' ' + role.label));
+    for (const kind of ['key', 'pad']) {
+      const waiting = capturing && capturing.role === role.key && capturing.kind === kind;
+      const value = bindings[role.key][kind];
+      let text = kind === 'key' ? keyName(value) : padName(value);
+      if (waiting) {
+        text = kind === 'key' ? 'Натисніть клавішу…' : 'Натисніть на геймпаді…';
+      }
+      const slot = el('button', 'binding' + (waiting ? ' waiting' : ''), text);
+      slot.addEventListener('click', () => startCapture(role.key, kind));
+      rows.append(slot);
+    }
+  }
+  const pads = connectedPads();
+  $('padStatus').textContent = pads.length > 0
+    ? 'Геймпад: ' + pads.map(p => p.id.replace(/\s*\(.*\)\s*$/, '')).join(', ')
+    : 'Геймпад не знайдено. Підключіть його і натисніть будь-яку кнопку.';
+}
+
+function openSettings() {
+  settingsOpen = true;
+  capturing = null;
+  renderSettings();
+  showScreen('settingsScreen');
+  startPadLoop();
+}
+
+function closeSettings() {
+  settingsOpen = false;
+  capturing = null;
+  if (state) {
+    render();
+  } else {
+    showScreen('joinScreen');
+  }
+}
+
+$('settingsBtn').addEventListener('click', () => (settingsOpen ? closeSettings() : openSettings()));
+$('closeSettings').addEventListener('click', closeSettings);
+$('resetBindings').addEventListener('click', () => {
+  bindings = JSON.parse(JSON.stringify(DEFAULT_BINDINGS));
+  capturing = null;
+  saveBindings();
+  renderSettings();
+});
+
+// ---------- Клавіатура ----------
 document.addEventListener('keydown', e => {
-  const key = KEYS[e.code];
-  if (!key || (key === 'rotate' && e.repeat)) {
+  if (capturing) {
+    e.preventDefault();
+    if (e.code === 'Escape') {
+      capturing = null;
+      renderSettings();
+    } else if (capturing.kind === 'key') {
+      finishCapture(e.code);
+    }
     return;
   }
-  if (pressRole(key)) {
+  if (settingsOpen || e.target.tagName === 'INPUT') {
+    return;
+  }
+  const role = roleFor('key', e.code);
+  if (!role || (role === 'rotate' && e.repeat)) {
+    return;
+  }
+  if (pressRole(role)) {
     e.preventDefault();
+  }
+});
+
+// ---------- Геймпад ----------
+const padHeld = {};          // натиснуті зараз: вхід → коли повторити
+let padLoopRunning = false;
+
+function connectedPads() {
+  return navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : [];
+}
+
+function activePadInputs() {
+  const active = new Set();
+  for (const pad of connectedPads()) {
+    pad.buttons.forEach((button, i) => {
+      if (button.pressed) {
+        active.add('b' + i);
+      }
+    });
+    pad.axes.forEach((value, i) => {
+      if (value <= -AXIS_THRESHOLD) {
+        active.add('a' + i + '-');
+      } else if (value >= AXIS_THRESHOLD) {
+        active.add('a' + i + '+');
+      }
+    });
+  }
+  return active;
+}
+
+function onPadPress(input) {
+  if (capturing && capturing.kind === 'pad') {
+    finishCapture(input);
+    return;
+  }
+  if (settingsOpen) {
+    return;
+  }
+  const role = roleFor('pad', input);
+  if (role) {
+    pressRole(role);
+  }
+}
+
+function pollPads() {
+  const now = performance.now();
+  const active = activePadInputs();
+  for (const input of active) {
+    if (!padHeld[input]) {
+      padHeld[input] = now + REPEAT_DELAY_MS;
+      onPadPress(input);
+      continue;
+    }
+    const role = roleFor('pad', input);
+    if (now >= padHeld[input] && role && role !== 'rotate' && !settingsOpen) {
+      padHeld[input] = now + REPEAT_EVERY_MS;
+      pressRole(role);
+    }
+  }
+  for (const input of Object.keys(padHeld)) {
+    if (!active.has(input)) {
+      delete padHeld[input];
+    }
+  }
+}
+
+// Геймпад не надсилає подій про натискання — опитуємо його 50 разів на секунду
+function startPadLoop() {
+  if (!padLoopRunning && navigator.getGamepads) {
+    padLoopRunning = true;
+    setInterval(pollPads, 20);
+  }
+}
+
+window.addEventListener('gamepadconnected', () => {
+  startPadLoop();
+  if (settingsOpen) {
+    renderSettings();
+  }
+});
+window.addEventListener('gamepaddisconnected', () => {
+  if (settingsOpen) {
+    renderSettings();
   }
 });
 

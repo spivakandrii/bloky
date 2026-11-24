@@ -9,13 +9,16 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <header class="app-bar">
     <h1>Блоки разом</h1>
     <span id="roomBadge" class="badge" hidden></span>
-    <button id="installBtn" class="install" hidden>Встановити</button>
+    <span class="bar-buttons">
+      <button id="installBtn" class="install" hidden>Встановити</button>
+      <button id="settingsBtn" class="gear" title="Керування" aria-label="Налаштування керування">⚙</button>
+    </span>
   </header>
 
   <main>
@@ -53,6 +56,23 @@
         <p id="startHint" class="hint center"></p>
       </div>
       <p id="lobbyWait" class="panel center hint" hidden>Чекаємо, поки ведучий почне гру…</p>
+    </section>
+
+    <!-- Налаштування керування цього пристрою -->
+    <section id="settingsScreen" class="screen" hidden>
+      <div class="panel">
+        <h2>Керування на цьому пристрої</h2>
+        <p class="hint">Торкніться поля і натисніть нову клавішу або кнопку на геймпаді. Esc — скасувати. Налаштування бачите лише ви: вони зберігаються в цьому браузері.</p>
+        <div class="bindings">
+          <span></span><b>Клавіатура</b><b>Геймпад</b>
+        </div>
+        <div id="bindingRows" class="bindings"></div>
+        <p id="padStatus" class="hint"></p>
+        <div class="row-buttons">
+          <button id="resetBindings" class="secondary">Як було</button>
+          <button id="closeSettings">Готово</button>
+        </div>
+      </div>
     </section>
 
     <!-- Гра -->
@@ -93,7 +113,7 @@
     </section>
   </main>
 
-  <script src="net.js?v=4"></script>
-  <script src="app.js?v=4"></script>
+  <script src="net.js?v=5"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>

@@ -69,6 +69,17 @@ input[type="text"], input[type="password"] {
   color: var(--text);
 }
 
+.bar-buttons { display: flex; align-items: center; gap: 8px; }
+.gear { padding: 4px 10px; font-size: 1.3rem; background: transparent; color: var(--text); }
+
+/* Налаштування керування */
+.bindings { display: grid; grid-template-columns: 1.1fr 1fr 1.3fr; gap: 8px; align-items: center; }
+.bindings > b { font-size: 0.85rem; color: var(--muted); text-align: center; }
+.binding-label { font-weight: 700; }
+.binding { padding: 10px 6px; font-weight: 600; font-size: 0.9rem; background: var(--bg); color: var(--text); border: 2px solid var(--muted); }
+.binding.waiting { border-color: var(--accent); color: var(--accent); }
+.row-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
 /* Лобі */
 .role-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .role-card {
