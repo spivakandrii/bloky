@@ -236,6 +236,10 @@ function isShared(key) {
   return !holder || !isOnline(holder);
 }
 
+function holdsRole(id) {
+  return ROLES.some(role => state.roles[role.key] === id);
+}
+
 function canPress(id, key) {
   return state.roles[key] === id || isShared(key);
 }
@@ -279,6 +283,9 @@ function handleAction(a) {
     } else {
       return;
     }
+  } else if (a.type === 'role' && isRole && state.phase === 'play' && isShared(a.role) && !holdsRole(a.from)) {
+    // Хто зайшов під час гри, бере одну вільну роль
+    state.roles[a.role] = a.from;
   } else if (a.type === 'start' && fromHost && state.phase !== 'play') {
     startGame();
   } else if (a.type === 'lobby' && fromHost && state.phase === 'over') {
@@ -519,7 +526,7 @@ let cell = 24;
 
 function layoutBoard() {
   const width = Math.min(window.innerWidth, 560) - 32;
-  const height = window.innerHeight - 300;
+  const height = window.innerHeight - 330;
   cell = Math.max(14, Math.floor(Math.min(width / COLS, height / ROWS)));
   setupCanvas($('boardCanvas'), cell * COLS, cell * ROWS);
   setupCanvas($('nextCanvas'), 48, 28);
@@ -620,6 +627,20 @@ function renderControls() {
       who = 'ви';
     }
     button.querySelector('.who').textContent = who;
+  }
+
+  const free = ROLES.filter(role => isShared(role.key));
+  const offer = state.phase === 'play' && !holdsRole(me.id) && free.length > 0;
+  $('pickRole').hidden = !offer;
+  const picks = $('pickButtons');
+  picks.innerHTML = '';
+  if (offer) {
+    for (const role of free) {
+      const pick = el('button', 'pick', role.icon);
+      pick.title = role.label;
+      pick.addEventListener('click', () => act('role', { role: role.key }));
+      picks.append(pick);
+    }
   }
 }
 

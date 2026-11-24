@@ -113,6 +113,10 @@ input[type="text"], input[type="password"] {
 }
 .stack { display: grid; gap: 8px; width: 100%; max-width: 220px; }
 
+.pick-role { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.pick-buttons { display: flex; gap: 6px; }
+.pick { min-width: 40px; padding: 4px 10px; font-size: 1.1rem; background: transparent; color: var(--accent); border: 2px solid var(--accent); }
+
 .controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .ctrl {
   display: grid;

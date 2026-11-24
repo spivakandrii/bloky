@@ -9,7 +9,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <header class="app-bar">
@@ -78,6 +78,11 @@
         </div>
       </div>
 
+      <div id="pickRole" class="pick-role" hidden>
+        <span class="hint">Ваша роль:</span>
+        <div id="pickButtons" class="pick-buttons"></div>
+      </div>
+
       <div class="controls">
         <button id="ctrl-left" class="ctrl"><span class="icon">◀</span><span class="who"></span></button>
         <button id="ctrl-rotate" class="ctrl"><span class="icon">⟳</span><span class="who"></span></button>
@@ -88,7 +93,7 @@
     </section>
   </main>
 
-  <script src="net.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="net.js?v=4"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>
