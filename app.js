@@ -145,6 +145,7 @@ function endGame() {
 function spawnPiece() {
   const type = state.next || takeFromBag();
   state.next = takeFromBag();
+  state.pieces = (state.pieces || 0) + 1;
   const size = SHAPES[type].length;
   state.piece = { t: type, r: 0, x: Math.floor((COLS - size) / 2), y: 0 };
   if (!fits(state.board, state.piece)) {
@@ -678,6 +679,8 @@ function renderGame() {
 let seenMove = 0;
 let seenLines = 0;
 let seenPhase = null;
+let seenLevel = 1;
+let seenPieces = 0;
 
 function signals() {
   const move = state.lastMove;
@@ -687,16 +690,174 @@ function signals() {
     button.classList.remove('pulse');
     void button.offsetWidth;
     button.classList.add('pulse');
+    playEffect(move.dir);
   }
+  const playing = state.phase === 'play' && seenPhase === 'play';
   if (state.lines > seenLines) {
     vibrate(80);
+    playEffect('line');
+  } else if (playing && state.pieces > seenPieces) {
+    playEffect('land');
   }
-  seenLines = state.lines;
+  if (playing && state.level > seenLevel) {
+    playEffect('level');
+  }
   if (state.phase === 'over' && seenPhase === 'play') {
     vibrate([300, 100, 300]);
+    playEffect('over');
   }
+  seenLines = state.lines;
+  seenLevel = state.level;
+  seenPieces = state.pieces || 0;
   seenPhase = state.phase;
+  updateMusic();
 }
+
+// =====================================================================
+//  Звуки і музика: синтезуються Web Audio, файлів не потрібно.
+//  Музика — приспів «Калинки» (народна пісня), темп росте з рівнем.
+// =====================================================================
+const SOUND_KEY = 'bloky-sound';
+const SEMITONES = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+// [нота, тривалість у восьмих]; 32 восьмі = один прохід приспіву
+const KALINKA = [
+  ['E5', 1], ['D5', 1], ['C5', 2], ['D5', 1], ['C5', 1], ['B4', 2],
+  ['C5', 1], ['B4', 1], ['A4', 1], ['B4', 1], ['E4', 4],
+  ['A5', 1], ['A5', 1], ['G5', 1], ['F5', 1], ['E5', 1], ['D5', 1], ['C5', 2],
+  ['D5', 1], ['C5', 1], ['B4', 1], ['G#4', 1], ['A4', 4]
+];
+// Бас: акорд на кожні 4 восьмі (корінь і квінта по черзі)
+const KALINKA_BASS = [['A2', 'E3'], ['E2', 'B2'], ['A2', 'E3'], ['E2', 'B2'], ['D2', 'A2'], ['A2', 'E3'], ['E2', 'B2'], ['A2', 'E3']];
+const KALINKA_EIGHTHS = 32;
+
+let sound = loadSound();
+let audio = null;
+let master = null;
+let musicTimer = null;
+let musicStep = 0;
+let musicNextAt = 0;
+const melodyAt = {};
+{
+  let step = 0;
+  for (const [note, length] of KALINKA) {
+    melodyAt[step] = [note, length];
+    step += length;
+  }
+}
+
+function loadSound() {
+  try {
+    return Object.assign({ music: true, effects: true }, JSON.parse(localStorage.getItem(SOUND_KEY)));
+  } catch {
+    return { music: true, effects: true };
+  }
+}
+
+function saveSound() {
+  try {
+    localStorage.setItem(SOUND_KEY, JSON.stringify(sound));
+  } catch {
+    // не збереглося — діятиме до перезавантаження
+  }
+}
+
+// Браузер дозволяє звук лише після дотику чи натискання клавіші
+function unlockAudio() {
+  if (!audio) {
+    const Context = window.AudioContext || window.webkitAudioContext;
+    if (!Context) {
+      return;
+    }
+    audio = new Context();
+    master = audio.createGain();
+    master.gain.value = 0.7;
+    master.connect(audio.destination);
+  }
+  if (audio.state === 'suspended') {
+    audio.resume();
+  }
+}
+
+document.addEventListener('pointerdown', unlockAudio);
+document.addEventListener('keydown', unlockAudio);
+
+function noteFreq(name) {
+  const match = /^([A-G])(#?)(\d)$/.exec(name);
+  const midi = (Number(match[3]) + 1) * 12 + SEMITONES[match[1]] + (match[2] ? 1 : 0);
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+function tone(freq, at, duration, type, volume) {
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.exponentialRampToValueAtTime(volume, at + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+  osc.connect(gain);
+  gain.connect(master);
+  osc.start(at);
+  osc.stop(at + duration + 0.02);
+}
+
+function playEffect(name) {
+  if (!sound.effects || !audio || audio.state !== 'running') {
+    return;
+  }
+  const now = audio.currentTime;
+  if (name === 'left' || name === 'right') {
+    tone(520, now, 0.04, 'square', 0.05);
+  } else if (name === 'rotate') {
+    tone(780, now, 0.05, 'square', 0.05);
+  } else if (name === 'down') {
+    tone(360, now, 0.04, 'square', 0.04);
+  } else if (name === 'land') {
+    tone(110, now, 0.12, 'triangle', 0.25);
+  } else if (name === 'line') {
+    ['C6', 'E6', 'G6', 'C7'].forEach((note, i) => tone(noteFreq(note), now + i * 0.06, 0.12, 'square', 0.07));
+  } else if (name === 'level') {
+    ['G5', 'C6'].forEach((note, i) => tone(noteFreq(note), now + i * 0.1, 0.18, 'triangle', 0.15));
+  } else if (name === 'over') {
+    ['E5', 'C5', 'A4', 'E4'].forEach((note, i) => tone(noteFreq(note), now + i * 0.22, 0.3, 'triangle', 0.2));
+  }
+}
+
+function musicBpm() {
+  return Math.min(240, 120 + (state.level - 1) * 10);
+}
+
+function scheduleMusic() {
+  const eighth = 60 / musicBpm() / 2;
+  while (musicNextAt < audio.currentTime + 0.15) {
+    const step = musicStep % KALINKA_EIGHTHS;
+    const note = melodyAt[step];
+    if (note) {
+      tone(noteFreq(note[0]), musicNextAt, note[1] * eighth * 0.9, 'square', 0.045);
+    }
+    if (step % 2 === 0) {
+      const chord = KALINKA_BASS[Math.floor(step / 4)];
+      tone(noteFreq(chord[(step / 2) % 2]), musicNextAt, eighth * 1.6, 'triangle', 0.12);
+    }
+    musicNextAt += eighth;
+    musicStep++;
+  }
+}
+
+function updateMusic() {
+  const want = sound.music && audio && audio.state === 'running' && state && state.phase === 'play' && !document.hidden;
+  if (want && !musicTimer) {
+    musicStep = 0;
+    musicNextAt = audio.currentTime + 0.05;
+    musicTimer = setInterval(scheduleMusic, 25);
+  } else if (!want && musicTimer) {
+    clearInterval(musicTimer);
+    musicTimer = null;
+  }
+}
+
+document.addEventListener('visibilitychange', updateMusic);
 
 // iPhone вібрацію з браузера не підтримує — там просто нічого не станеться
 function vibrate(pattern) {
@@ -869,6 +1030,8 @@ function renderSettings() {
       rows.append(slot);
     }
   }
+  $('musicInput').checked = sound.music;
+  $('effectsInput').checked = sound.effects;
   const pads = connectedPads();
   $('padStatus').textContent = pads.length > 0
     ? 'Геймпад: ' + pads.map(p => p.id.replace(/\s*\(.*\)\s*$/, '')).join(', ')
@@ -895,6 +1058,15 @@ function closeSettings() {
 
 $('settingsBtn').addEventListener('click', () => (settingsOpen ? closeSettings() : openSettings()));
 $('closeSettings').addEventListener('click', closeSettings);
+$('musicInput').addEventListener('change', () => {
+  sound.music = $('musicInput').checked;
+  saveSound();
+  updateMusic();
+});
+$('effectsInput').addEventListener('change', () => {
+  sound.effects = $('effectsInput').checked;
+  saveSound();
+});
 $('resetBindings').addEventListener('click', () => {
   bindings = JSON.parse(JSON.stringify(DEFAULT_BINDINGS));
   capturing = null;
