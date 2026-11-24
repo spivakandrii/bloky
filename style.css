@@ -70,7 +70,7 @@ input[type="text"], input[type="password"] {
 }
 
 /* Лобі */
-.role-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.role-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .role-card {
   display: grid;
   gap: 4px;
@@ -113,7 +113,7 @@ input[type="text"], input[type="password"] {
 }
 .stack { display: grid; gap: 8px; width: 100%; max-width: 220px; }
 
-.controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .ctrl {
   display: grid;
   justify-items: center;
@@ -131,7 +131,7 @@ input[type="text"], input[type="password"] {
 .ctrl .who { font-size: 0.8rem; font-weight: 400; overflow-wrap: anywhere; }
 .ctrl.mine { background: var(--mine); color: #0f1730; }
 .ctrl.mine .who { font-weight: 700; }
-.ctrl.free { border: 2px dashed var(--accent); color: var(--accent); }
-.ctrl:active.mine { transform: scale(0.95); }
+.ctrl.shared { background: var(--accent); color: #0f1730; }
+.ctrl:active.mine, .ctrl:active.shared { transform: scale(0.95); }
 @keyframes pulse { from { box-shadow: 0 0 0 0 rgba(255, 210, 63, 0.9); } to { box-shadow: 0 0 0 10px rgba(255, 210, 63, 0); } }
 .ctrl.pulse { animation: pulse 250ms ease-out; }

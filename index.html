@@ -22,7 +22,7 @@
     <!-- Вхід у кімнату -->
     <section id="joinScreen" class="screen">
       <form id="joinForm" class="panel">
-        <p class="hint">Одна фігура на трьох: <b>один</b> рухає її ліворуч, <b>другий</b> праворуч, <b>третій</b> повертає. Падає вона сама. Усі вводять <b>однакову</b> назву кімнати і пароль.</p>
+        <p class="hint">Одна фігура на всіх і чотири кнопки: ◀ ⟳ ▶ ▼. Кожен бронює свою, а кнопку без власника тиснуть усі. Падає фігура сама і щопівхвилини швидше. Усі вводять <b>однакову</b> назву кімнати і пароль.</p>
         <label>Ваше імʼя
           <input id="nameInput" type="text" required maxlength="20" autocomplete="nickname">
         </label>
@@ -42,7 +42,7 @@
       <div class="panel">
         <h2>Ролі</h2>
         <div id="roleCards" class="role-cards"></div>
-        <p class="hint">Торкніться ролі, щоб узяти її, ще раз — щоб віддати. Для тренування одна людина може взяти кілька ролей. Проєктор можна підключити як екран без ролі.</p>
+        <p class="hint">Торкніться ролі, щоб забронювати її, ще раз — щоб віддати. Роль без власника — спільна: її кнопку тиснуть усі. Проєктор можна підключити як екран без ролі.</p>
       </div>
       <div class="panel">
         <h2>У кімнаті</h2>
@@ -60,7 +60,7 @@
       <div class="stats">
         <div><span class="label">Очки</span><b id="scoreView">0</b></div>
         <div><span class="label">Лінії</span><b id="linesView">0</b></div>
-        <div><span class="label">Рекорд</span><b id="bestView">0</b></div>
+        <div><span class="label">Рівень</span><b id="levelView">1</b></div>
         <div><span class="label">Далі</span><canvas id="nextCanvas"></canvas></div>
       </div>
 
@@ -69,6 +69,7 @@
         <div id="overPanel" class="over" hidden>
           <p class="eyebrow">Гру завершено</p>
           <p id="overScore" class="big-text"></p>
+          <p id="overBest" class="hint"></p>
           <div id="overHost" class="stack">
             <button id="againBtn" class="big">Ще раз</button>
             <button id="lobbyBtn" class="secondary">До ролей</button>
@@ -81,6 +82,7 @@
         <button id="ctrl-left" class="ctrl"><span class="icon">◀</span><span class="who"></span></button>
         <button id="ctrl-rotate" class="ctrl"><span class="icon">⟳</span><span class="who"></span></button>
         <button id="ctrl-right" class="ctrl"><span class="icon">▶</span><span class="who"></span></button>
+        <button id="ctrl-down" class="ctrl"><span class="icon">▼</span><span class="who"></span></button>
       </div>
       <p id="netInfo" class="hint center"></p>
     </section>

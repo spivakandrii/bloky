@@ -21,11 +21,16 @@ const me = { id: myId(), name: '' };
 const ROLES = [
   { key: 'left', icon: '◀', label: 'Ліворуч' },
   { key: 'rotate', icon: '⟳', label: 'Поворот' },
-  { key: 'right', icon: '▶', label: 'Праворуч' }
+  { key: 'right', icon: '▶', label: 'Праворуч' },
+  { key: 'down', icon: '▼', label: 'Вниз' }
 ];
+// Роль без власника (або з власником не в мережі) — спільна: її кнопку тиснуть усі
 const COLS = 10;
 const ROWS = 20;
-const FALL_MS = 700;            // фігура падає з однаковою швидкістю всю гру
+const FALL_START_MS = 800;      // падіння на першому рівні
+const FALL_MIN_MS = 150;
+const FALL_SPEEDUP = 0.9;       // кожен рівень — на 10% швидше
+const LEVEL_EVERY_MS = 30000;   // новий рівень кожні 30 секунд
 const REPEAT_DELAY_MS = 220;    // затиснута кнопка: перший повтор
 const REPEAT_EVERY_MS = 110;    // і далі кожні
 const LINE_POINTS = [0, 100, 300, 500, 800];
@@ -56,6 +61,7 @@ let lastSeq = {};
 let liveHostSeenAt = 0;
 let bag = [];              // лише в ведучого
 let nextFallAt = 0;        // лише в ведучого
+let nextLevelAt = 0;       // лише в ведучого
 const lastSeen = {};       // лише в ведучого
 
 // =====================================================================
@@ -111,12 +117,13 @@ function newGame() {
     seq: 0,
     phase: 'lobby',
     players: [],
-    roles: { left: null, rotate: null, right: null },
+    roles: { left: null, rotate: null, right: null, down: null },
     board: EMPTY.repeat(COLS * ROWS),
     piece: null,
     next: null,
     score: 0,
     lines: 0,
+    level: 1,
     best: 0,
     lastMove: null
   };
@@ -149,12 +156,18 @@ function startGame() {
   state.board = EMPTY.repeat(COLS * ROWS);
   state.score = 0;
   state.lines = 0;
+  state.level = 1;
   state.next = null;
   state.lastMove = null;
   bag = [];
   state.phase = 'play';
   spawnPiece();
-  nextFallAt = Date.now() + FALL_MS;
+  nextFallAt = Date.now() + fallMs();
+  nextLevelAt = Date.now() + LEVEL_EVERY_MS;
+}
+
+function fallMs() {
+  return Math.max(FALL_MIN_MS, Math.round(FALL_START_MS * Math.pow(FALL_SPEEDUP, state.level - 1)));
 }
 
 function lockPiece() {
@@ -185,6 +198,14 @@ function fallStep() {
 
 function tryMove(dir) {
   const piece = state.piece;
+  if (dir === 'down') {
+    const lower = Object.assign({}, piece, { y: piece.y + 1 });
+    if (!fits(state.board, lower)) {
+      return false;
+    }
+    state.piece = lower;
+    return true;
+  }
   if (dir === 'left' || dir === 'right') {
     const moved = Object.assign({}, piece, { x: piece.x + (dir === 'left' ? -1 : 1) });
     if (!fits(state.board, moved)) {
@@ -210,15 +231,21 @@ function isOnline(id) {
   return Boolean(player && player.online);
 }
 
-function startProblem() {
-  const free = ROLES.filter(role => !state.roles[role.key]);
-  if (free.length > 0) {
-    return 'Вільні ролі: ' + free.map(role => role.label.toLowerCase()).join(', ') + '.';
+function isShared(key) {
+  const holder = state.roles[key];
+  return !holder || !isOnline(holder);
+}
+
+function canPress(id, key) {
+  return state.roles[key] === id || isShared(key);
+}
+
+function startHint() {
+  const shared = ROLES.filter(role => isShared(role.key));
+  if (shared.length === 0) {
+    return 'Усі ролі розібрано!';
   }
-  if (ROLES.some(role => !isOnline(state.roles[role.key]))) {
-    return 'Хтось із гравців не в мережі.';
-  }
-  return null;
+  return 'Без власника, тиснуть усі: ' + shared.map(role => role.icon).join(' ');
 }
 
 function upsertPlayer(id, name) {
@@ -244,20 +271,19 @@ function handleAction(a) {
   const isRole = ROLES.some(role => role.key === a.role);
   const isDir = ROLES.some(role => role.key === a.dir);
 
-  if (a.type === 'role' && isRole) {
-    const holder = state.roles[a.role];
-    if (holder === a.from && state.phase !== 'play') {
+  if (a.type === 'role' && isRole && state.phase === 'lobby') {
+    if (state.roles[a.role] === a.from) {
       state.roles[a.role] = null;
-    } else if (!holder || !isOnline(holder)) {
+    } else if (isShared(a.role)) {
       state.roles[a.role] = a.from;
     } else {
       return;
     }
-  } else if (a.type === 'start' && fromHost && state.phase !== 'play' && !startProblem()) {
+  } else if (a.type === 'start' && fromHost && state.phase !== 'play') {
     startGame();
   } else if (a.type === 'lobby' && fromHost && state.phase === 'over') {
     state.phase = 'lobby';
-  } else if (a.type === 'move' && isDir && state.phase === 'play' && state.roles[a.dir] === a.from) {
+  } else if (a.type === 'move' && isDir && state.phase === 'play' && canPress(a.from, a.dir)) {
     if (!tryMove(a.dir)) {
       return;
     }
@@ -289,11 +315,18 @@ function hostTick() {
 }
 
 function hostGameTick() {
-  if (!isHost || !state || state.phase !== 'play' || Date.now() < nextFallAt) {
+  if (!isHost || !state || state.phase !== 'play') {
+    return;
+  }
+  if (Date.now() >= nextLevelAt) {
+    state.level++;
+    nextLevelAt = Date.now() + LEVEL_EVERY_MS;
+  }
+  if (Date.now() < nextFallAt) {
     return;
   }
   fallStep();
-  nextFallAt = Date.now() + FALL_MS;
+  nextFallAt = Date.now() + fallMs();
   publishState();
 }
 
@@ -314,7 +347,8 @@ function becomeHost(fromState) {
   } else {
     state = newGame();
   }
-  nextFallAt = Date.now() + FALL_MS;
+  nextFallAt = Date.now() + fallMs();
+  nextLevelAt = Date.now() + LEVEL_EVERY_MS;
   lastSeq = {};
   upsertPlayer(me.id, me.name);
   publishState();
@@ -456,7 +490,11 @@ function renderLobby() {
     const holder = state.roles[role.key];
     const card = el('button', 'role-card' + (holder ? ' taken' : '') + (holder === me.id ? ' mine' : ''));
     card.append(el('span', 'icon', role.icon), el('span', null, role.label));
-    card.append(el('span', 'who', holder ? playerName(holder) + (holder === me.id ? ' (ви)' : '') : 'вільно'));
+    let who = 'усі';
+    if (holder) {
+      who = playerName(holder) + (holder === me.id ? ' (ви)' : '');
+    }
+    card.append(el('span', 'who', who));
     card.addEventListener('click', () => act('role', { role: role.key }));
     cards.append(card);
   }
@@ -472,9 +510,7 @@ function renderLobby() {
   $('hostControls').hidden = !isHost;
   $('lobbyWait').hidden = isHost;
   if (isHost) {
-    const problem = startProblem();
-    $('startBtn').disabled = Boolean(problem);
-    $('startHint').textContent = problem || 'Усе готово!';
+    $('startHint').textContent = startHint();
   }
 }
 
@@ -574,15 +610,14 @@ function renderControls() {
   for (const role of ROLES) {
     const button = $('ctrl-' + role.key);
     const holder = state.roles[role.key];
-    const mine = holder === me.id;
-    const free = !holder || !isOnline(holder);
-    button.classList.toggle('mine', mine);
-    button.classList.toggle('free', !mine && free && state.phase === 'play');
-    let who = holder ? playerName(holder) : '';
-    if (mine) {
+    const shared = isShared(role.key);
+    button.classList.toggle('mine', holder === me.id);
+    button.classList.toggle('shared', shared);
+    let who = playerName(holder);
+    if (shared) {
+      who = 'усі';
+    } else if (holder === me.id) {
       who = 'ви';
-    } else if (free && state.phase === 'play') {
-      who = 'зайняти';
     }
     button.querySelector('.who').textContent = who;
   }
@@ -603,7 +638,7 @@ function plural(n, one, few, many) {
 function renderGame() {
   $('scoreView').textContent = state.score;
   $('linesView').textContent = state.lines;
-  $('bestView').textContent = Math.max(state.best, state.score);
+  $('levelView').textContent = state.level;
   drawBoard();
   drawNext();
   renderControls();
@@ -612,6 +647,7 @@ function renderGame() {
   $('overPanel').hidden = !over;
   if (over) {
     $('overScore').textContent = plural(state.score, 'очко', 'очки', 'очок') + ' · ' + plural(state.lines, 'лінія', 'лінії', 'ліній');
+    $('overBest').textContent = 'Рівень ' + state.level + ' · рекорд кімнати ' + state.best;
     $('overHost').hidden = !isHost;
     $('overWait').hidden = isHost;
   }
@@ -668,7 +704,7 @@ async function updateWakeLock() {
 //  Керування
 // =====================================================================
 function pressRole(key) {
-  if (state && state.phase === 'play' && state.roles[key] === me.id) {
+  if (state && state.phase === 'play' && canPress(me.id, key)) {
     vibrate(15);
     act('move', { dir: key });
     return true;
@@ -689,13 +725,6 @@ for (const role of ROLES) {
     if (!state) {
       return;
     }
-    const holder = state.roles[role.key];
-    if (holder !== me.id) {
-      if (state.phase === 'play' && (!holder || !isOnline(holder))) {
-        act('role', { role: role.key });
-      }
-      return;
-    }
     if (!pressRole(role.key) || role.key === 'rotate') {
       return;
     }
@@ -710,7 +739,7 @@ for (const role of ROLES) {
   button.addEventListener('contextmenu', e => e.preventDefault());
 }
 
-const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'rotate', Space: 'rotate', KeyX: 'rotate' };
+const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'rotate', Space: 'rotate', KeyX: 'rotate', ArrowDown: 'down' };
 
 document.addEventListener('keydown', e => {
   const key = KEYS[e.code];
